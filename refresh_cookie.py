@@ -427,7 +427,8 @@ def quick_status():
     try:
         print("\n  📦 容器状态")
         print("  → 检查 grok2api 和 warp 容器是否正常运行")
-        print(f"  {ssh_exec(ssh, 'docker ps --filter name=grok2api --filter name=warp --format \"table {{.Names}}\\t{{.Status}}\" 2>/dev/null')}")
+        containers = ssh_exec(ssh, 'docker ps --filter name=grok2api --filter name=warp --format "table {{.Names}}\t{{.Status}}" 2>/dev/null')
+        print(f"  {containers}")
 
         print("\n  🌐 WARP 出口 IP")
         print("  → 通过 WARP 代理访问 ifconfig.me 获取公网 IP")
