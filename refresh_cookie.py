@@ -494,6 +494,9 @@ def check_ua_consistency():
                     ws.send(json.dumps({"id": 1, "method": "Browser.getVersion"}))
                     res = json.loads(ws.recv())
                     local_ua = res.get("result", {}).get("userAgent")
+                    if local_ua:
+                        # 重点：修正 Headless 标记，防止 Cloudflare 报机器人
+                        local_ua = local_ua.replace("HeadlessChrome", "Chrome")
                     ws.close()
                     if local_ua: break
             except: pass
