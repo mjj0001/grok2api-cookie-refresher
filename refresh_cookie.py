@@ -453,6 +453,85 @@ def quick_status():
     print("\n" + "=" * 52)
 
 
+# ====================== 功能5: UA 指纹检查与同步 ======================
+def check_ua_consistency():
+    """
+    【UA 指纹检查与同步】
+    获取本地 Chrome 的真实 UA，并与服务器 config.toml 中的 user_agent 对比。
+    如果不一致，支持一键同步更新。
+    """
+    print("\n" + "=" * 52)
+    print("   🔍 UA 指纹检查与同步")
+    print("=" * 52)
+    print("   说明：确保本地浏览器与服务器配置的 User-Agent 完全一致")
+    print("-" * 52)
+
+    auto_install(["paramiko", "websocket-client", "requests"])
+    import websocket, requests
+
+    chrome_path = find_chrome()
+    if not chrome_path: print("❌ 未找到 Chrome"); return
+
+    local_ua = None
+    chrome = None
+    try:
+        print("\n  [步骤1/3] 获取本地浏览器 UA...")
+        # 启动一个临时的调试实例
+        subprocess.run(["taskkill", "/F", "/IM", "chrome.exe"], capture_output=True)
+        time.sleep(1)
+        chrome_tmp = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "ua-check-tmp")
+        chrome = subprocess.Popen([
+            chrome_path, "--headless", f"--remote-debugging-port={CHROME_DEBUG_PORT}",
+            f"--user-data-dir={chrome_tmp}", "--remote-allow-origins=*", "about:blank"
+        ])
+        
+        for _ in range(10):
+            try:
+                tabs = requests.get(f"http://localhost:{CHROME_DEBUG_PORT}/json", timeout=2).json()
+                if tabs:
+                    ws_url = tabs[0].get("webSocketDebuggerUrl")
+                    ws = websocket.create_connection(ws_url, timeout=5)
+                    ws.send(json.dumps({"id": 1, "method": "Browser.getVersion"}))
+                    res = json.loads(ws.recv())
+                    local_ua = res.get("result", {}).get("userAgent")
+                    ws.close()
+                    if local_ua: break
+            except: pass
+            time.sleep(1)
+        
+        if not local_ua: print("  ❌ 提取本地 UA 失败"); return
+        print(f"  ✓ 本地 UA: {local_ua}")
+
+    finally:
+        if chrome: chrome.terminate()
+
+    print("\n  [步骤2/3] 获取服务器配置 UA...")
+    ssh = get_ssh()
+    if not ssh: print("  ❌ SSH 连接失败"); return
+    
+    try:
+        remote_ua_line = ssh_exec(ssh, f"grep 'user_agent' {CONFIG_FILE} | head -1")
+        import re
+        match = re.search(r'user_agent\s*=\s*"(.*)"', remote_ua_line)
+        remote_ua = match.group(1) if match else "未找到"
+        print(f"  ✓ 服务器 UA: {remote_ua}")
+
+        print("\n  [步骤3/3] 对比结果")
+        if local_ua == remote_ua:
+            print("  ✅ 匹配！本地与服务器指纹完全一致。")
+        else:
+            print("  ❌ 不匹配！这可能导致 Cookie 校验失败。")
+            if input("\n  是否一键同步本地 UA 到服务器? (y/n): ").strip().lower() == "y":
+                # 安全转义 UA 中的特殊字符
+                escaped_ua = local_ua.replace('"', '\\"')
+                ssh_exec(ssh, f"sed -i 's|user_agent = \".*\"|user_agent = \"{escaped_ua}\"|' {CONFIG_FILE}")
+                ssh_exec(ssh, f"cd {COMPOSE_DIR} && docker-compose restart grok2api")
+                print("  ✅ 同步成功并已重启容器！")
+    finally:
+        ssh.close()
+    print("\n" + "=" * 52)
+
+
 # ====================== 主菜单 ======================
 def main():
     print("\n" + "=" * 52)
@@ -467,6 +546,7 @@ def main():
         print("  [2] 🔄 检查更新         — 检测新版本、备份配置、对比差异")
         print("  [3] 💾 备份管理         — 创建/查看/对比/还原配置备份")
         print("  [4] 📊 状态查看         — 容器状态、WARP IP、内存等")
+        print("  [5] 🔍 UA 指纹检查      — 检查并同步本地与服务器的 User-Agent")
         print("  [0] ❌ 退出")
         choice = input("\n  请选择功能: ").strip()
 
@@ -474,6 +554,7 @@ def main():
         elif choice == "2": check_update()
         elif choice == "3": manage_backups()
         elif choice == "4": quick_status()
+        elif choice == "5": check_ua_consistency()
         elif choice == "0": print("\n  再见！👋"); break
         else: print("  无效选择，请重新输入")
 
